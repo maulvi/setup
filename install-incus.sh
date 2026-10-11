@@ -94,8 +94,29 @@ if ! incus profile show default >/dev/null 2>&1; then
   incus admin init --minimal
 fi
 
-# Keep the API on the local Unix socket; clear any existing HTTPS listener.
-incus config unset core.https_address 2>/dev/null || true
+# Debian's Incus service does not necessarily set INCUS_UI for the daemon.
+# Tell it where the static UI package installs its index.html and assets.
+if [[ ! -f /opt/incus/ui/index.html ]]; then
+  echo "UI package is installed but /opt/incus/ui/index.html is missing." >&2
+  dpkg -L incus-ui-canonical | tail -40 >&2 || true
+  exit 1
+fi
+install -d -m 0755 /etc/systemd/system/incus.service.d
+cat > /etc/systemd/system/incus.service.d/10-webui.conf <<'OVERRIDE'
+[Service]
+Environment=INCUS_UI=/opt/incus/ui
+OVERRIDE
+
+# Incus serves the static UI over its HTTPS listener, not its API Unix socket.
+# Bind HTTPS to loopback only; never expose the Incus API on a LAN/public IP.
+incus config set core.https_address 127.0.0.1:8443
+systemctl daemon-reload
+systemctl restart incus.service
+if ! curl -kfsS https://127.0.0.1:8443/ui/ -o /dev/null; then
+  echo "Incus started, but the UI endpoint did not return HTTP success." >&2
+  echo "Check: systemctl status incus.service; journalctl -u incus.service -n 80 --no-pager" >&2
+  exit 1
+fi
 
 printf '\nChecking whether the UI can be installed without changing Incus...\n'
 simulation="$(apt-get -s install --no-install-recommends incus-ui-canonical 2>&1)" || {
