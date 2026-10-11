@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Install Incus from Debian's own repository and the community Hye Ararat UI.
-# No third-party Incus package repositories. Never creates test instances.
+# Install Incus from Debian's native repository and the community Hye Ararat UI.
+# No third-party Incus apt repository. No network API listener. No test instances.
 set -Eeuo pipefail
 
 trap 'rc=$?; printf "\n[ERROR] Failed at line %s (exit %s).\n" "$LINENO" "$rc" >&2; exit "$rc"' ERR
@@ -23,8 +23,8 @@ if [[ "$(dpkg --print-architecture)" != amd64 && "$(dpkg --print-architecture)" 
 fi
 
 printf '\n=== Incus + Hye Ararat UI installer ===\n'
-printf 'Source: Debian 13 official repository (Incus) + Hye Ararat GitHub release (UI)\n'
-printf 'Includes full VM dependencies. No test containers or VMs will be created.\n\n'
+printf 'Incus source: Debian official repository. No IP/network API listener will be configured.\n'
+printf 'Local Unix-socket access only; no test containers or VMs will be created.\n\n'
 read -r -p 'Install now? [Y/n] ' answer || true
 case "${answer,,}" in n|no) echo 'Cancelled.'; exit 0 ;; esac
 
@@ -37,7 +37,8 @@ if ! command -v systemctl >/dev/null 2>&1 || [[ "$(ps -p 1 -o comm= | tr -d ' ')
   exit 1
 fi
 
-# Download the prebuilt Hye Ararat UI; this is a community beta, not an official Incus UI.
+# Install the community UI assets. The UI is served by Incus; without an HTTPS
+# listener it will not be directly reachable from a browser, by design.
 ui_tmp="$(mktemp -d)"
 trap 'rm -rf "${ui_tmp:-}"; rc=$?; printf "\n[ERROR] Failed at line %s (exit %s).\n" "$LINENO" "$rc" >&2; exit "$rc"' ERR
 curl -fL --retry 3 https://github.com/hyecompany/ararat-web/releases/latest/download/ararat.tar.gz -o "$ui_tmp/ararat.tar.gz"
@@ -47,7 +48,6 @@ tar -xzf "$ui_tmp/ararat.tar.gz" -C /opt/incus/ui
 rm -rf "$ui_tmp"
 trap 'rc=$?; printf "\n[ERROR] Failed at line %s (exit %s).\n" "$LINENO" "$rc" >&2; exit "$rc"' ERR
 
-# Use the UI path supported by Incus when it is not bundled by the OS package.
 install -d -m 0755 /etc/systemd/system/incus.service.d
 cat > /etc/systemd/system/incus.service.d/ui.conf <<'UNIT'
 [Service]
@@ -55,28 +55,29 @@ Environment=INCUS_UI=/opt/incus/ui
 UNIT
 systemctl daemon-reload
 
-# Enable the packaged daemon. Enable socket units too if this package provides them.
+# Prefer systemd socket activation. Do not enable incus.service separately
+# when the package provides incus.socket.
 if systemctl cat incus.socket >/dev/null 2>&1; then
   systemctl enable --now incus.socket
+else
+  systemctl enable incus.service
 fi
 if systemctl cat incus-user.socket >/dev/null 2>&1; then
   systemctl enable --now incus-user.socket
 fi
-systemctl enable --now incus.service
-systemctl restart incus.service
 
-# Initialize only when no default profile exists; do not reset existing configuration.
-if incus admin waitready --timeout=30 >/dev/null 2>&1; then
-  if ! incus profile show default >/dev/null 2>&1; then
-    incus admin init --minimal
-  fi
-  incus config set core.https_address ':8443'
-else
-  echo "Incus did not become ready. Run: sudo incus admin init" >&2
+# Trigger local Unix-socket activation and initialize only if needed.
+if ! incus admin waitready --timeout=30 >/dev/null 2>&1; then
+  echo "Incus did not become ready. Check: systemctl status incus.socket incus.service" >&2
   exit 1
 fi
+if ! incus profile show default >/dev/null 2>&1; then
+  incus admin init --minimal
+fi
 
-# Grant the invoking non-root user administrative access.
+# Explicitly clear any existing network listener so the API remains Unix-socket only.
+incus config unset core.https_address 2>/dev/null || true
+
 user="${SUDO_USER:-}"
 if [[ -n "$user" && "$user" != root ]] && id "$user" >/dev/null 2>&1; then
   getent group incus-admin >/dev/null || groupadd incus-admin
@@ -86,9 +87,9 @@ fi
 
 printf '\nInstallation complete. No test instances were created.\n'
 printf 'Incus version: '; incus version || true
-printf '\nDaemon service:\n'
-systemctl --no-pager --full status incus.service 2>/dev/null || true
-printf '\nUI: https://<server-ip>:8443\n'
-printf 'Restrict TCP/8443 with your firewall and configure trusted client certificates before remote use.\n'
-printf 'Incus install docs: https://linuxcontainers.org/incus/docs/main/installing/\n'
-printf 'UI project (community beta): https://github.com/hyecompany/ararat-web\n'
+printf '\nSocket units (where provided):\n'
+systemctl --no-pager --full status incus.socket incus-user.socket 2>/dev/null || true
+printf '\nIncus API: local Unix socket only; no TCP/8443 listener configured.\n'
+printf 'Note: the installed UI cannot be opened directly in a browser until you provide a local-only proxy/tunnel.\n'
+printf 'Incus docs: https://linuxcontainers.org/incus/docs/main/installing/\n'
+printf 'Community UI: https://github.com/hyecompany/ararat-web\n'
