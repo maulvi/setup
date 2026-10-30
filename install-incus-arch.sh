@@ -15,14 +15,14 @@ die()  { printf '\033[1;31m[ERROR]\033[0m %s\n' "$*" >&2; exit 1; }
 trap 'die "Failed at line $LINENO: $BASH_COMMAND"' ERR
 
 ask_yes_no() {
-    local prompt="$1" default="\${2:-n}" answer
+    local prompt="$1" default="${2:-n}" answer
     while true; do
         if [[ "$default" == y ]]; then
             read -r -p "$prompt [Y/n]: " answer || die "Input closed."
         else
             read -r -p "$prompt [y/N]: " answer || die "Input closed."
         fi
-        answer="\${answer,,}"
+        answer="${answer,,}"
         [[ -z "$answer" ]] && answer="$default"
         case "$answer" in
             y|yes) return 0 ;;
@@ -35,22 +35,22 @@ ask_yes_no() {
 ask_value() {
     local prompt="$1" default="$2" value
     read -r -p "$prompt [$default]: " value || die "Input closed."
-    printf '%s' "\${value:-$default}"
+    printf '%s' "${value:-$default}"
 }
 
 choose_item() {
     local title="$1"; shift
     local -a items=("$@")
     local i choice
-    (("\${#items[@]}" > 0)) || die "No choices available for: $title"
+    (("${#items[@]}" > 0)) || die "No choices available for: $title"
     printf '\n%s\n' "$title" >&2
-    for i in "\${!items[@]}"; do
-        printf '  %d) %s\n' "$((i + 1))" "\${items[$i]}" >&2
+    for i in "${!items[@]}"; do
+        printf '  %d) %s\n' "$((i + 1))" "${items[$i]}" >&2
     done
     while true; do
-        read -r -p "Choose [1-\${#items[@]}]: " choice || die "Input closed."
-        if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= \${#items[@]} )); then
-            printf '%s' "\${items[$((choice - 1))]}"
+        read -r -p "Choose [1-${#items[@]}]: " choice || die "Input closed."
+        if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#items[@]} )); then
+            printf '%s' "${items[$((choice - 1))]}"
             return 0
         fi
         printf 'Invalid choice.\n' >&2
@@ -107,14 +107,14 @@ fi
 
 ask_yes_no "Run pacman full system upgrade and install selected packages?" y ||
     die "Package installation cancelled."
-pacman -Syu --needed "\${BASE_PACKAGES[@]}" "\${STORAGE_PACKAGES[@]}"
+pacman -Syu --needed "${BASE_PACKAGES[@]}" "${STORAGE_PACKAGES[@]}"
 
 for cmd in incus qemu-system-x86_64 jq; do
     command -v "$cmd" >/dev/null || die "Required command missing after package installation: $cmd"
 done
 
 pacman -Q incus incus-ui qemu-system-x86 edk2-ovmf cdrtools swtpm
-for pkg in "\${STORAGE_PACKAGES[@]}"; do pacman -Q "$pkg"; done
+for pkg in "${STORAGE_PACKAGES[@]}"; do pacman -Q "$pkg"; done
 
 # Verify the UI from the package manifest; do not guess its installation path.
 UI_INDEX="$(pacman -Ql incus-ui | awk '$2 ~ /^\/usr\/share\/incus-ui\/index\.html$/ {print $2; exit}')"
@@ -259,7 +259,7 @@ if [[ -n "$FINAL_API" ]] && ! is_loopback_listener "$FINAL_API"; then
 fi
 
 # 7. Explicit opt-in for root-equivalent administration.
-TARGET_USER="\${SUDO_USER:-}"
+TARGET_USER="${SUDO_USER:-}"
 if [[ -n "$TARGET_USER" && "$TARGET_USER" != root ]] && id "$TARGET_USER" >/dev/null 2>&1; then
     printf '\nDetected invoking user: %s\n' "$TARGET_USER"
     warn "incus-admin grants effectively root-equivalent control over the host."
@@ -289,8 +289,8 @@ printf 'Networks:            %s\n' "$NETWORK_COUNT"
 printf 'Profiles:            %s\n' "$PROFILE_COUNT"
 printf 'QEMU:                %s\n' "$(qemu-system-x86_64 --version | head -n1)"
 printf 'KVM:                 %s\n' "$( [[ -c /dev/kvm ]] && printf available || printf unavailable )"
-printf 'OVMF:                %s\n' "\${OVMF_CODE:-not detected}"
-printf 'API listener:        %s\n' "\${FINAL_API:-disabled}"
+printf 'OVMF:                %s\n' "${OVMF_CODE:-not detected}"
+printf 'API listener:        %s\n' "${FINAL_API:-disabled}"
 printf 'UI mode:             %s\n' "$UI_MODE"
 printf '\n'
 printf '%s\n' \
