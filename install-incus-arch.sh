@@ -136,7 +136,8 @@ fi
 incus info >/dev/null 2>&1 || die "Incus daemon is not responding through the local Unix socket."
 log "Incus daemon is responding locally."
 
-# 4. Optional initialization. A zero-pool result is valid.
+# 4. Optional initialization. Existing/default Incus config is left alone
+# unless the user explicitly chooses to run the wizard.
 STORAGE_JSON="$(incus storage list --format json)"
 NETWORK_JSON="$(incus network list --format json)"
 PROFILE_JSON="$(incus profile list --format json)"
@@ -148,27 +149,14 @@ printf '\nCurrent Incus state:\n'
 printf '  Storage pools: %s\n  Networks: %s\n  Profiles: %s\n\n' \
     "$STORAGE_COUNT" "$NETWORK_COUNT" "$PROFILE_COUNT"
 
-if (( STORAGE_COUNT == 0 && NETWORK_COUNT == 0 && PROFILE_COUNT <= 1 )); then
-    INIT_DEFAULT=y
-else
-    INIT_DEFAULT=n
-    warn "Existing Incus configuration detected. The init wizard may reconfigure it."
-fi
-
-if ask_yes_no "Run Incus interactive initialization now? (you choose storage, bridge and clustering)" "$INIT_DEFAULT"; then
-    printf '\nThe Incus wizard is yours to control:\n'
-    printf '%s\n' \
-        '  - You may create a storage pool or answer NO.' \
-        '  - You may create a managed bridge or skip it.' \
-        '  - Keep network API access disabled for local-only exposure.' \
-        '  - Finishing with zero storage pools is completely valid.'
+if ask_yes_no "Run Incus initialization wizard now?" n; then
     incus admin init
     log "Incus initialization wizard finished."
 else
-    info "Skipped initialization. You can run: incus admin init"
+    info "Skipped initialization. Existing Incus configuration was left unchanged."
 fi
 
-# Refresh state; do not require any storage pool.
+# Refresh state for the final summary.
 STORAGE_JSON="$(incus storage list --format json)"
 NETWORK_JSON="$(incus network list --format json)"
 PROFILE_JSON="$(incus profile list --format json)"
@@ -281,13 +269,13 @@ command -v qemu-system-x86_64 >/dev/null || die "QEMU binary is missing."
 printf '\n============================================================\n'
 printf '                 INSTALLATION COMPLETE\n'
 printf '============================================================\n'
-printf 'Incus version:       '; incus version | head -n1
+printf 'Incus version:       '; incus version | sed -n '1p'
 printf 'Incus UI package:    '; pacman -Q incus-ui | awk '{print $2}'
 printf 'UI index:            %s\n' "$UI_INDEX"
 printf 'Storage pools:       %s (installer created none)\n' "$STORAGE_COUNT"
 printf 'Networks:            %s\n' "$NETWORK_COUNT"
 printf 'Profiles:            %s\n' "$PROFILE_COUNT"
-printf 'QEMU:                %s\n' "$(qemu-system-x86_64 --version | head -n1)"
+printf 'QEMU:                %s\n' "$(qemu-system-x86_64 --version | sed -n '1p')"
 printf 'KVM:                 %s\n' "$( [[ -c /dev/kvm ]] && printf available || printf unavailable )"
 printf 'OVMF:                %s\n' "${OVMF_CODE:-not detected}"
 printf 'API listener:        %s\n' "${FINAL_API:-disabled}"
