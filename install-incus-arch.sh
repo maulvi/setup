@@ -7,7 +7,7 @@ set -Eeuo pipefail
 # never removed or recreated by this installer.
 # No disks are formatted and no storage pools or test instances are created.
 
-readonly SCRIPT_VERSION="2.1.1"
+readonly SCRIPT_VERSION="2.1.2"
 readonly SUBID_REQUIRED_COUNT=10000000
 readonly SUBID_SEARCH_FIRST=1000000
 readonly SUBID_SEARCH_LAST=590000000
@@ -604,8 +604,8 @@ else
     printf '%s\n' 'Remote access: ssh -L 8443:127.0.0.1:8443 USER@SERVER'
 fi
 printf '\n'
-printf '%s\n' \
-    'VM hardware acceleration depends on host virtualization support and /dev/kvm.' \\
-    'QEMU, edk2-ovmf, cdrtools and swtpm are installed as packages only.' \\
-    'No QEMU process, test instance, image, or storage pool was created.'
+printf '%s\n' 'VM hardware acceleration depends on host virtualization support and /dev/kvm.'
+printf '%s\n' 'QEMU, edk2-ovmf, cdrtools and swtpm are installed as packages only.'
+printf '%s\n' 'No QEMU process, test instance, image, or storage pool was created.'
+'
 printf '%s\n' '============================================================'
