@@ -7,7 +7,7 @@ set -Eeuo pipefail
 # never removed or recreated by this installer.
 # No disks are formatted and no storage pools or test instances are created.
 
-readonly SCRIPT_VERSION="2.1.0"
+readonly SCRIPT_VERSION="2.1.1"
 readonly SUBID_REQUIRED_COUNT=10000000
 readonly SUBID_SEARCH_FIRST=1000000
 readonly SUBID_SEARCH_LAST=590000000
@@ -275,16 +275,6 @@ restart_incus_and_wait() {
     IDMAP_RELOAD_REQUIRED=0
 }
 
-ensure_module_line() {
-    local module="$1" file="$2"
-    if ! grep -Fxq "$module" "$file" 2>/dev/null; then
-        if [[ -s "$file" ]] && [[ "$(tail -c 1 "$file" 2>/dev/null || true)" != $'\n' ]]; then
-            printf '\n' >> "$file"
-        fi
-        printf '%s\n' "$module" >> "$file"
-    fi
-}
-
 json_array_count() {
     jq -er 'if type == "array" then length else error("expected JSON array") end'
 }
@@ -343,7 +333,7 @@ ask_yes_no "Run pacman full system upgrade and install selected packages?" y ||
     die "Package installation cancelled."
 pacman -Syu --needed "${BASE_PACKAGES[@]}" "${STORAGE_PACKAGES[@]}"
 
-for cmd in incus qemu-system-x86_64 jq usermod newuidmap newgidmap ss timeout modprobe; do
+for cmd in incus jq usermod newuidmap newgidmap ss; do
     command -v "$cmd" >/dev/null || die "Required command missing after package installation: $cmd"
 done
 
@@ -462,87 +452,12 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 6. QEMU/KVM and OVMF: verify each independently
+# 6. QEMU/KVM packages
 # ---------------------------------------------------------------------------
-CPU_VENDOR="$(awk -F ': ' '/vendor_id/{print $2; exit}' /proc/cpuinfo 2>/dev/null || true)"
-KVM_MODULES=(kvm)
-case "$CPU_VENDOR" in
-    GenuineIntel) KVM_MODULES+=(kvm_intel) ;;
-    AuthenticAMD) KVM_MODULES+=(kvm_amd) ;;
-esac
-
-KVM_MODULE_LOAD_OK=1
-for module in "${KVM_MODULES[@]}"; do
-    if ! modprobe "$module" 2>/dev/null; then
-        KVM_MODULE_LOAD_OK=0
-        warn "Could not load kernel module: $module"
-    fi
-done
-
-KVM_STATUS="unavailable"
-KVM_TEST_OUTPUT=""
-if [[ -c /dev/kvm && -r /dev/kvm && -w /dev/kvm ]]; then
-    KVM_TEST_OUTPUT="$(mktemp)"
-    set +e
-    timeout --signal=TERM 2s qemu-system-x86_64 \
-        -accel kvm -machine none -nodefaults -display none -S -monitor none -serial none \
-        >"$KVM_TEST_OUTPUT" 2>&1
-    KVM_TEST_RC=$?
-    set -e
-    if (( KVM_TEST_RC == 124 )); then
-        KVM_STATUS="functional"
-        log "QEMU successfully initialized KVM acceleration (/dev/kvm)."
-    else
-        warn "QEMU KVM initialization test failed (exit $KVM_TEST_RC)."
-        [[ ! -s "$KVM_TEST_OUTPUT" ]] || sed -n '1,8p' "$KVM_TEST_OUTPUT" >&2
-    fi
-    rm -f "$KVM_TEST_OUTPUT"
-else
-    warn "/dev/kvm is missing or not accessible. QEMU is installed, but KVM acceleration is unavailable."
-fi
-
-if (( KVM_MODULE_LOAD_OK == 1 )) && ((${#KVM_MODULES[@]} > 1)); then
-    if ask_yes_no "Persist KVM modules across boots?" y; then
-        MODULE_FILE=/etc/modules-load.d/incus-kvm.conf
-        install -d -m 0755 /etc/modules-load.d
-        if [[ -L "$MODULE_FILE" || ( -e "$MODULE_FILE" && ! -f "$MODULE_FILE" ) ]]; then
-            die "$MODULE_FILE is not a regular file; refusing to modify it."
-        fi
-        if [[ ! -e "$MODULE_FILE" ]]; then
-            install -m 0644 /dev/null "$MODULE_FILE"
-        fi
-        for module in "${KVM_MODULES[@]}"; do
-            ensure_module_line "$module" "$MODULE_FILE"
-        done
-        log "KVM module persistence verified in $MODULE_FILE (existing contents preserved)."
-    fi
-fi
-
-OVMF_CODE=""
-OVMF_VARS=""
-OVMF_CODE="$(pacman -Ql edk2-ovmf | awk '
-    $2 ~ /\/OVMF_CODE\.4m\.fd$/ { preferred = $2 }
-    $2 ~ /\/OVMF_CODE\.fd$/ && !fallback { fallback = $2 }
-    END { if (preferred) print preferred; else if (fallback) print fallback }
-')"
-OVMF_VARS="$(pacman -Ql edk2-ovmf | awk '
-    $2 ~ /\/OVMF_VARS\.4m\.fd$/ { preferred = $2 }
-    $2 ~ /\/OVMF_VARS\.fd$/ && !fallback { fallback = $2 }
-    END { if (preferred) print preferred; else if (fallback) print fallback }
-')"
-
-OVMF_STATUS="unavailable"
-if [[ -n "$OVMF_CODE" && -s "$OVMF_CODE" && -n "$OVMF_VARS" && -s "$OVMF_VARS" ]]; then
-    OVMF_STATUS="available"
-    log "OVMF firmware pair verified."
-else
-    warn "OVMF CODE/VARS firmware pair was not found; check the edk2-ovmf package files."
-fi
-
-SWTPM_STATUS="unavailable"
-if command -v swtpm >/dev/null; then
-    SWTPM_STATUS="available"
-fi
+# qemu-system-x86, edk2-ovmf, cdrtools and swtpm were installed by pacman
+# above. Do not launch QEMU, probe /dev/kvm, load modules, or alter boot
+# module configuration here. Hardware acceleration is host-dependent.
+log "QEMU/KVM, OVMF and virtual TPM packages are installed."
 
 # ---------------------------------------------------------------------------
 # 7. UI/API mode and strict listener validation
@@ -648,7 +563,6 @@ fi
 incus info >/dev/null 2>&1 || die "Incus daemon verification failed."
 [[ -s "$UI_INDEX" && -d "$UI_DIR/assets" ]] || die "Incus UI files failed final verification."
 incus webui --help >/dev/null 2>&1 || die "Incus webui command failed final verification."
-command -v qemu-system-x86_64 >/dev/null || die "QEMU binary is missing."
 is_root_subid_range_sufficient /etc/subuid || die "Root subordinate UID range verification failed."
 is_root_subid_range_sufficient /etc/subgid || die "Root subordinate GID range verification failed."
 
@@ -664,12 +578,7 @@ printf 'Root subgid:         %s\n' "$(root_subid_range_summary /etc/subgid)"
 printf 'Storage pools:       %s (installer created none)\n' "$STORAGE_COUNT"
 printf 'Networks:            %s\n' "$NETWORK_COUNT"
 printf 'Profiles:            %s\n' "$PROFILE_COUNT"
-printf 'QEMU:                %s\n' "$(qemu-system-x86_64 --version | sed -n '1p')"
-printf 'KVM acceleration:    %s\n' "$KVM_STATUS"
-printf 'OVMF firmware:       %s\n' "$OVMF_STATUS"
-[[ -z "$OVMF_CODE" ]] || printf 'OVMF CODE:           %s\n' "$OVMF_CODE"
-[[ -z "$OVMF_VARS" ]] || printf 'OVMF VARS:           %s\n' "$OVMF_VARS"
-printf 'Virtual TPM:         %s\n' "$SWTPM_STATUS"
+printf 'QEMU/KVM packages:   installed (no runtime probe)\n'
 printf 'API listener:        %s\n' "${FINAL_API:-disabled}"
 printf 'UI mode:             %s\n' "$UI_MODE"
 printf 'Daemon activation:   %s\n' "$ACTIVATION_MODE"
@@ -696,7 +605,7 @@ else
 fi
 printf '\n'
 printf '%s\n' \
-    'VMs require functional /dev/kvm for hardware acceleration.' \
-    'UEFI firmware availability is checked separately from KVM availability.' \
-    'No test instances, images, or storage pools were created.'
+    'VM hardware acceleration depends on host virtualization support and /dev/kvm.' \\
+    'QEMU, edk2-ovmf, cdrtools and swtpm are installed as packages only.' \\
+    'No QEMU process, test instance, image, or storage pool was created.'
 printf '%s\n' '============================================================'
