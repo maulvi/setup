@@ -95,8 +95,21 @@ write_files:
 runcmd:
   - |
     set -eu
-    # Never edit /etc/ssh/sshd_config. Debian loads sshd_config.d drop-ins.
+    # Never edit /etc/ssh/sshd_config. Require Debian's packaged Include directive.
+    if ! grep -Eq '^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d/\*\.conf([[:space:]]|$)' /etc/ssh/sshd_config; then
+      echo "ERROR: /etc/ssh/sshd_config does not include /etc/ssh/sshd_config.d/*.conf; refusing to modify the original file." >&2
+      exit 1
+    fi
+
     /usr/sbin/sshd -t
+    effective_config="$(/usr/sbin/sshd -T)"
+    printf '%s\\n' "$effective_config" | grep -Fqx 'allowusers b'
+    printf '%s\\n' "$effective_config" | grep -Fqx 'pubkeyauthentication yes'
+    printf '%s\\n' "$effective_config" | grep -Fqx 'passwordauthentication no'
+    printf '%s\\n' "$effective_config" | grep -Fqx 'kbdinteractiveauthentication no'
+    printf '%s\\n' "$effective_config" | grep -Fqx 'permitemptypasswords no'
+    printf '%s\\n' "$effective_config" | grep -Fqx 'permitrootlogin no'
+
     systemctl enable --now ssh.service
     systemctl reload ssh.service
   - [systemctl, enable, --now, apt-daily.timer]
