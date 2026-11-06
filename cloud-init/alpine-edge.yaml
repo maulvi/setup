@@ -5,7 +5,7 @@
 # Cloud-init's SSH modules run before the final-stage packages module.
 # Install the SSH server early so host-key generation and service reload work.
 bootcmd:
-  - [sh, -c, "printf '%s\\n' 'https://dl-cdn.alpinelinux.org/alpine/edge/main' 'https://dl-cdn.alpinelinux.org/alpine/edge/community' > /etc/apk/repositories"]
+  - [sh, -c, "printf '%s\\\\n' 'https://dl-cdn.alpinelinux.org/alpine/edge/main' 'https://dl-cdn.alpinelinux.org/alpine/edge/community' > /etc/apk/repositories"]
   - [sh, -c, "if ! command -v sshd >/dev/null 2>&1 || ! command -v ssh-keygen >/dev/null 2>&1; then apk update && apk add --no-cache openssh-server openssh-keygen openssh-server-common-openrc; fi"]
 
 ssh_pwauth: false
