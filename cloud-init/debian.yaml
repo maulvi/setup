@@ -58,6 +58,12 @@ ssh_pwauth: false
 disable_root: true
 
 write_files:
+  - path: /etc/ssh/sshd_config.d/b.conf
+    owner: root:root
+    permissions: '0644'
+    content: |
+      AllowUsers b
+
   - path: /etc/apt/apt.conf.d/20auto-upgrades
     owner: root:root
     permissions: '0644'
@@ -75,7 +81,7 @@ write_files:
       Unattended-Upgrade::Automatic-Reboot "false";
 
 runcmd:
-  - [systemctl, enable, --now, ssh.service]
+  - [sh, -c, 'sshd -t && systemctl enable --now ssh.service && systemctl reload ssh.service']
   - [systemctl, enable, --now, apt-daily.timer]
   - [systemctl, enable, --now, apt-daily-upgrade.timer]
   - [systemctl, enable, --now, unattended-upgrades.service]
@@ -86,6 +92,7 @@ final_message: |
   Hostname: debian
   User: b
   SSH: Public key authentication
+  SSH access: User b only
   Root SSH: Disabled
   Password SSH: Disabled
   Sudo: Passwordless
