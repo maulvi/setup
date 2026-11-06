@@ -103,12 +103,12 @@ runcmd:
 
     /usr/sbin/sshd -t
     effective_config="$(/usr/sbin/sshd -T)"
-    printf '%s\\n' "$effective_config" | grep -Fqx 'allowusers b'
-    printf '%s\\n' "$effective_config" | grep -Fqx 'pubkeyauthentication yes'
-    printf '%s\\n' "$effective_config" | grep -Fqx 'passwordauthentication no'
-    printf '%s\\n' "$effective_config" | grep -Fqx 'kbdinteractiveauthentication no'
-    printf '%s\\n' "$effective_config" | grep -Fqx 'permitemptypasswords no'
-    printf '%s\\n' "$effective_config" | grep -Fqx 'permitrootlogin no'
+    printf '%s\n' "$effective_config" | grep -Fqx 'allowusers b'
+    printf '%s\n' "$effective_config" | grep -Fqx 'pubkeyauthentication yes'
+    printf '%s\n' "$effective_config" | grep -Fqx 'passwordauthentication no'
+    printf '%s\n' "$effective_config" | grep -Fqx 'kbdinteractiveauthentication no'
+    printf '%s\n' "$effective_config" | grep -Fqx 'permitemptypasswords no'
+    printf '%s\n' "$effective_config" | grep -Fqx 'permitrootlogin no'
 
     systemctl enable --now ssh.service
     systemctl reload ssh.service
