@@ -81,7 +81,14 @@ write_files:
       Unattended-Upgrade::Automatic-Reboot "false";
 
 runcmd:
-  - [sh, -c, 'sshd -t && systemctl enable --now ssh.service && systemctl reload ssh.service']
+  - |
+    set -eu
+    if ! grep -Fqx 'Include /etc/ssh/sshd_config.d/*.conf' /etc/ssh/sshd_config; then
+      sed -i '1i Include /etc/ssh/sshd_config.d/*.conf' /etc/ssh/sshd_config
+    fi
+    sshd -t
+    systemctl enable --now ssh.service
+    systemctl reload ssh.service
   - [systemctl, enable, --now, apt-daily.timer]
   - [systemctl, enable, --now, apt-daily-upgrade.timer]
   - [systemctl, enable, --now, unattended-upgrades.service]
