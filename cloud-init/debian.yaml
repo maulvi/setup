@@ -62,7 +62,19 @@ write_files:
     owner: root:root
     permissions: '0644'
     content: |
+      # Managed by cloud-init. Keep the distribution sshd_config untouched.
+
+      # Permit SSH access only to the provisioned administrator.
       AllowUsers b
+
+      # Key-based authentication only.
+      PubkeyAuthentication yes
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitEmptyPasswords no
+
+      # Disallow direct root login.
+      PermitRootLogin no
 
   - path: /etc/apt/apt.conf.d/20auto-upgrades
     owner: root:root
@@ -83,10 +95,8 @@ write_files:
 runcmd:
   - |
     set -eu
-    if ! grep -Fqx 'Include /etc/ssh/sshd_config.d/*.conf' /etc/ssh/sshd_config; then
-      sed -i '1i Include /etc/ssh/sshd_config.d/*.conf' /etc/ssh/sshd_config
-    fi
-    sshd -t
+    # Never edit /etc/ssh/sshd_config. Debian loads sshd_config.d drop-ins.
+    /usr/sbin/sshd -t
     systemctl enable --now ssh.service
     systemctl reload ssh.service
   - [systemctl, enable, --now, apt-daily.timer]
@@ -98,7 +108,7 @@ final_message: |
 
   Hostname: debian
   User: b
-  SSH: Public key authentication
+  SSH: Public key authentication only
   SSH access: User b only
   Root SSH: Disabled
   Password SSH: Disabled
