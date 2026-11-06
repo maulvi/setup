@@ -2,6 +2,14 @@
 # Alpine Edge Cloud (Incus LXC)
 # Supply this file via Incus instance config: user.user-data
 
+# Cloud-init's SSH modules run before the final-stage packages module.
+# Install the SSH server early so host-key generation and service reload work.
+bootcmd:
+  - [sh, -c, "printf '%s\\n' 'https://dl-cdn.alpinelinux.org/alpine/edge/main' 'https://dl-cdn.alpinelinux.org/alpine/edge/community' > /etc/apk/repositories"]
+  - [sh, -c, "if ! command -v sshd >/dev/null 2>&1 || ! command -v ssh-keygen >/dev/null 2>&1; then apk update && apk add --no-cache openssh-server openssh-keygen openssh-server-common-openrc; fi"]
+
+ssh_pwauth: false
+
 package_update: true
 package_upgrade: true
 
@@ -50,9 +58,6 @@ packages:
   - openssh-server
   - openssh-keygen
   - openssh-server-common-openrc
-
-groups:
-  - wheel
 
 users:
   - name: b
@@ -121,30 +126,30 @@ runcmd:
 
     # Configure passwordless sudo for b.
     mkdir -p /etc/sudoers.d
-    printf '%s\n' 'b ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-cloud-init-b
+    printf '%s\\n' 'b ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-cloud-init-b
     chmod 0440 /etc/sudoers.d/90-cloud-init-b
     if ! grep -Eq '^[[:space:]]*#includedir[[:space:]]+/etc/sudoers.d' /etc/sudoers; then
-      printf '\n#includedir /etc/sudoers.d\n' >> /etc/sudoers
+      printf '\\n#includedir /etc/sudoers.d\\n' >> /etc/sudoers
     fi
     visudo -c
 
     # Hostname and timezone.
-    printf '%s\n' debian > /etc/hostname
+    printf '%s\\n' debian > /etc/hostname
     hostname debian
-    if ! grep -Eq '^[[:space:]]*127\.0\.1\.1[[:space:]]+debian([[:space:]]|$)' /etc/hosts; then
-      printf '%s\n' '127.0.1.1 debian' >> /etc/hosts
+    if ! grep -Eq '^[[:space:]]*127\\.0\\.1\\.1[[:space:]]+debian([[:space:]]|$)' /etc/hosts; then
+      printf '%s\\n' '127.0.1.1 debian' >> /etc/hosts
     fi
     ln -snf /usr/share/zoneinfo/Asia/Jakarta /etc/localtime
-    printf '%s\n' Asia/Jakarta > /etc/timezone
+    printf '%s\\n' Asia/Jakarta > /etc/timezone
 
     # SSH: key authentication only; prohibit root login.
     SSHD_CONFIG=/etc/ssh/sshd_config
     TMP_CONFIG="$(mktemp)"
     {
-      printf '%s\n' \
-        'PasswordAuthentication no' \
-        'KbdInteractiveAuthentication no' \
-        'PubkeyAuthentication yes' \
+      printf '%s\\n' \\
+        'PasswordAuthentication no' \\
+        'KbdInteractiveAuthentication no' \\
+        'PubkeyAuthentication yes' \\
         'PermitRootLogin no'
       cat "$SSHD_CONFIG"
     } > "$TMP_CONFIG"
