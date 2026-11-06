@@ -2,8 +2,8 @@
 # Alpine Edge Docker host (Incus LXC)
 # Supply this file via Incus instance config: user.user-data
 #
-# IMPORTANT: On the Incus HOST, set security.nesting=true for this instance.
-# Cloud-init inside the guest cannot change host-side Incus properties.
+# Incus HOST profile/instance must already have security.nesting=true.
+# Docker also needs cgroup v2 available inside the guest.
 
 hostname: alpine-docker
 preserve_hostname: false
@@ -19,7 +19,7 @@ packages:
   - docker-openrc
 
 write_files:
-  # Alpine Edge community repository provides Docker packages.
+  # Alpine Edge repositories.
   - path: /etc/apk/repositories
     owner: root:root
     permissions: '0644'
@@ -53,35 +53,52 @@ runcmd:
   - |
     set -eu
 
-    # Ensure Docker is enabled at boot.
-    rc-update add docker default
-
-    # Start Docker and wait until the daemon API is actually responsive.
-    # Capture OpenRC diagnostics so failed provisioning is actionable.
-    if ! rc-service -d docker start > /var/log/docker-cloud-init.log 2>&1; then
-      :
+    # Alpine uses cgroups v2 (unified) by default; make it explicit.
+    if grep -Eq '^[[:space:]]*rc_cgroup_mode=' /etc/rc.conf; then
+      sed -i 's/^[[:space:]]*rc_cgroup_mode=.*/rc_cgroup_mode="unified"/' /etc/rc.conf
+    else
+      printf '\nrc_cgroup_mode="unified"\n' >> /etc/rc.conf
     fi
 
-    attempt=0
-    while [ "$attempt" -lt 30 ]; do
-      if docker info >/dev/null 2>&1; then
-        break
+    # Mount/prepare cgroups before starting Docker.
+    rc-update add cgroups boot
+    if ! rc-service -d cgroups start > /var/log/cgroups-cloud-init.log 2>&1; then
+      if ! awk '$2 == "/sys/fs/cgroup" && $3 == "cgroup2" { found=1 } END { exit !found }' /proc/mounts; then
+        printf '%s\n' 'cgroups service failed and cgroup v2 is not mounted.' >> /var/log/cgroups-cloud-init.log
+        cat /var/log/cgroups-cloud-init.log
+        exit 1
       fi
-      attempt=$((attempt + 1))
-      sleep 1
-    done
+    fi
 
-    if ! docker info >/dev/null 2>&1; then
+    # Enable Docker at boot and start it now.
+    rc-update add docker default
+    if ! rc-service -d docker start > /var/log/docker-cloud-init.log 2>&1; then
       {
-        printf '%s\n' 'Docker daemon did not become ready during Cloud-Init.'
-        printf '%s\n' '===== OpenRC status ====='
+        printf '%s\n' 'OpenRC could not start Docker.'
         rc-service -d docker status
-        printf '%s\n' '===== System log ====='
         logread | tail -100
       } >> /var/log/docker-cloud-init.log 2>&1 || true
       cat /var/log/docker-cloud-init.log
       exit 1
     fi
+
+    # Wait until the Docker API is responding, not merely until OpenRC returns.
+    attempt=0
+    until docker info >/dev/null 2>&1; do
+      attempt=$((attempt + 1))
+      if [ "$attempt" -ge 30 ]; then
+        {
+          printf '%s\n' 'Docker daemon did not become ready within 30 seconds.'
+          printf '%s\n' '===== OpenRC status ====='
+          rc-service -d docker status
+          printf '%s\n' '===== System log ====='
+          logread | tail -100
+        } >> /var/log/docker-cloud-init.log 2>&1 || true
+        cat /var/log/docker-cloud-init.log
+        exit 1
+      fi
+      sleep 1
+    done
 
     # Enable daily package maintenance.
     rc-update add crond default
