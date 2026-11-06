@@ -2,6 +2,9 @@
 # Alpine Edge Cloud (Incus LXC)
 # Supply this file via Incus instance config: user.user-data
 
+hostname: alpine
+preserve_hostname: false
+
 # Cloud-init's SSH modules run before the final-stage packages module.
 # Install the SSH server early so host-key generation and service reload work.
 bootcmd:
@@ -133,12 +136,7 @@ runcmd:
     fi
     visudo -c
 
-    # Hostname and timezone.
-    printf '%s\n' debian > /etc/hostname
-    hostname debian
-    if ! grep -Eq '^[[:space:]]*127\.0\.1\.1[[:space:]]+debian([[:space:]]|$)' /etc/hosts; then
-      printf '%s\n' '127.0.1.1 debian' >> /etc/hosts
-    fi
+    # Set timezone.
     ln -snf /usr/share/zoneinfo/Asia/Jakarta /etc/localtime
     printf '%s\n' Asia/Jakarta > /etc/timezone
 
