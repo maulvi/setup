@@ -16,6 +16,7 @@ package_upgrade: true
 packages:
   - docker-engine
   - docker-cli
+  - docker-cli-compose
   - docker-openrc
 
 write_files:
