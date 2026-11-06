@@ -1,0 +1,93 @@
+#cloud-config
+
+hostname: debian
+manage_etc_hosts: true
+timezone: Asia/Jakarta
+locale: en_US.UTF-8
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - sudo
+  - apt-utils
+  - curl
+  - wget
+  - git
+  - vim
+  - nano
+  - htop
+  - btop
+  - tmux
+  - unzip
+  - zip
+  - tar
+  - xz-utils
+  - zstd
+  - ca-certificates
+  - gnupg
+  - apt-transport-https
+  - bash-completion
+  - dnsutils
+  - iputils-ping
+  - traceroute
+  - mtr-tiny
+  - net-tools
+  - iproute2
+  - lsof
+  - rsync
+  - jq
+  - ncdu
+  - openssh-server
+  - unattended-upgrades
+  - apt-listchanges
+
+users:
+  - default
+  - name: b
+    gecos: Administrator
+    groups:
+      - sudo
+    shell: /bin/bash
+    lock_passwd: true
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    ssh_authorized_keys:
+      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE+4ZEOdXWpq7Z+0ujjF6ZvzOhfskiuDljkbJpjNVFeA eddsa-key-20250201"
+
+ssh_pwauth: false
+disable_root: true
+
+write_files:
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    owner: root:root
+    permissions: '0644'
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
+
+  - path: /etc/apt/apt.conf.d/52unattended-upgrades-local
+    owner: root:root
+    permissions: '0644'
+    content: |
+      Unattended-Upgrade::Remove-Unused-Dependencies "true";
+      Unattended-Upgrade::Remove-New-Unused-Dependencies "true";
+      Unattended-Upgrade::Automatic-Reboot "false";
+
+runcmd:
+  - [systemctl, enable, --now, ssh.service]
+  - [systemctl, enable, --now, apt-daily.timer]
+  - [systemctl, enable, --now, apt-daily-upgrade.timer]
+  - [systemctl, enable, --now, unattended-upgrades.service]
+
+final_message: |
+  Cloud-init completed successfully.
+
+  Hostname: debian
+  User: b
+  SSH: Public key authentication
+  Root SSH: Disabled
+  Password SSH: Disabled
+  Sudo: Passwordless
+  Automatic APT updates: Enabled
+  Automatic reboot: Disabled
