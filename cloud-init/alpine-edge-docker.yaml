@@ -1,0 +1,59 @@
+#cloud-config
+# Alpine Edge Docker host (Incus LXC)
+# Supply this file via Incus instance config: user.user-data
+
+hostname: alpine-docker
+preserve_hostname: false
+
+package_update: true
+package_upgrade: true
+
+# Keep the installation limited to the Docker engine, CLI, and OpenRC service.
+# docker-cli-buildx and docker-cli-compose are intentionally not installed.
+packages:
+  - docker-engine
+  - docker-cli
+  - docker-openrc
+
+write_files:
+  # Alpine Edge community contains the Docker packages.
+  - path: /etc/apk/repositories
+    owner: root:root
+    permissions: '0644'
+    content: |
+      https://dl-cdn.alpinelinux.org/alpine/edge/main
+      https://dl-cdn.alpinelinux.org/alpine/edge/community
+
+  # Docker-in-Incus compatibility marker.
+  - path: /.dockerenv
+    owner: root:root
+    permissions: '0644'
+    content: ""
+
+  # Run APK updates daily using Alpine's existing BusyBox cron.
+  - path: /usr/local/sbin/apk-auto-upgrade
+    owner: root:root
+    permissions: '0755'
+    content: |
+      #!/bin/sh
+      set -eu
+      apk update
+      apk upgrade --available
+
+  - path: /etc/crontabs/root
+    owner: root:root
+    permissions: '0600'
+    content: |
+      0 3 * * * /usr/local/sbin/apk-auto-upgrade >> /var/log/apk-auto-upgrade.log 2>&1
+
+runcmd:
+  - |
+    set -eu
+
+    # Enable Docker at boot and start it now.
+    rc-update add docker default
+    rc-service docker start
+
+    # Enable BusyBox cron and start scheduled package updates.
+    rc-update add crond default
+    rc-service crond start
