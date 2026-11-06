@@ -2,8 +2,8 @@
 # Alpine Edge Docker host (Incus LXC)
 # Supply this file via Incus instance config: user.user-data
 #
-# Incus HOST profile/instance must already have security.nesting=true.
-# Docker also needs cgroup v2 available inside the guest.
+# Configure security.nesting=true in the Incus host profile/instance.
+# This guest configuration installs a complete rootful Docker toolchain.
 
 hostname: alpine-docker
 preserve_hostname: false
@@ -11,28 +11,23 @@ preserve_hostname: false
 package_update: true
 package_upgrade: true
 
-# Minimal Docker installation: engine, CLI, and OpenRC integration only.
-# Compose, Buildx, editors, shells, and general-purpose utilities are omitted.
+# Alpine's docker meta-package installs:
+# - docker-engine (dockerd)
+# - docker-cli
+# - docker-cli-buildx (Buildx plugin)
+# Compose is a separate CLI plugin; docker-openrc supplies the OpenRC service.
 packages:
-  - docker-engine
-  - docker-cli
+  - docker
   - docker-cli-compose
   - docker-openrc
 
 write_files:
-  # Alpine Edge repositories.
   - path: /etc/apk/repositories
     owner: root:root
     permissions: '0644'
     content: |
       https://dl-cdn.alpinelinux.org/alpine/edge/main
       https://dl-cdn.alpinelinux.org/alpine/edge/community
-
-  # Incus documents this marker as helpful for Docker inside nested containers.
-  - path: /.dockerenv
-    owner: root:root
-    permissions: '0644'
-    content: ""
 
   # Daily APK maintenance. Runs at 03:00 UTC.
   - path: /usr/local/sbin/apk-auto-upgrade
@@ -54,44 +49,31 @@ runcmd:
   - |
     set -eu
 
-    # Alpine uses cgroups v2 (unified) by default; make it explicit.
-    if grep -Eq '^[[:space:]]*rc_cgroup_mode=' /etc/rc.conf; then
-      sed -i 's/^[[:space:]]*rc_cgroup_mode=.*/rc_cgroup_mode="unified"/' /etc/rc.conf
-    else
-      printf '\nrc_cgroup_mode="unified"\n' >> /etc/rc.conf
-    fi
-
-    # Mount/prepare cgroups before starting Docker.
-    rc-update add cgroups boot
-    if ! rc-service -d cgroups start > /var/log/cgroups-cloud-init.log 2>&1; then
-      if ! awk '$2 == "/sys/fs/cgroup" && $3 == "cgroup2" { found=1 } END { exit !found }' /proc/mounts; then
-        printf '%s\n' 'cgroups service failed and cgroup v2 is not mounted.' >> /var/log/cgroups-cloud-init.log
-        cat /var/log/cgroups-cloud-init.log
-        exit 1
-      fi
-    fi
-
-    # Enable Docker at boot and start it now.
+    # Enable Docker at boot.
     rc-update add docker default
-    if ! rc-service -d docker start > /var/log/docker-cloud-init.log 2>&1; then
+
+    # Start Docker and save diagnostics if the daemon fails.
+    if ! rc-service docker start > /var/log/docker-cloud-init.log 2>&1; then
       {
-        printf '%s\n' 'OpenRC could not start Docker.'
-        rc-service -d docker status
+        printf '%s\n' 'OpenRC could not start the Docker daemon.'
+        printf '%s\n' '===== Docker service status ====='
+        rc-service docker status
+        printf '%s\n' '===== System log ====='
         logread | tail -100
       } >> /var/log/docker-cloud-init.log 2>&1 || true
       cat /var/log/docker-cloud-init.log
       exit 1
     fi
 
-    # Wait until the Docker API is responding, not merely until OpenRC returns.
+    # Wait for the daemon API, then verify Buildx and Compose plugins.
     attempt=0
     until docker info >/dev/null 2>&1; do
       attempt=$((attempt + 1))
-      if [ "$attempt" -ge 30 ]; then
+      if [ "$attempt" -ge 60 ]; then
         {
-          printf '%s\n' 'Docker daemon did not become ready within 30 seconds.'
-          printf '%s\n' '===== OpenRC status ====='
-          rc-service -d docker status
+          printf '%s\n' 'Docker daemon did not become ready within 60 seconds.'
+          printf '%s\n' '===== Docker service status ====='
+          rc-service docker status
           printf '%s\n' '===== System log ====='
           logread | tail -100
         } >> /var/log/docker-cloud-init.log 2>&1 || true
@@ -100,6 +82,9 @@ runcmd:
       fi
       sleep 1
     done
+
+    docker buildx version
+    docker compose version
 
     # Enable daily package maintenance.
     rc-update add crond default
