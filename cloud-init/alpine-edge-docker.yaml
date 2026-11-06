@@ -1,6 +1,9 @@
 #cloud-config
 # Alpine Edge Docker host (Incus LXC)
 # Supply this file via Incus instance config: user.user-data
+#
+# IMPORTANT: On the Incus HOST, set security.nesting=true for this instance.
+# Cloud-init inside the guest cannot change host-side Incus properties.
 
 hostname: alpine-docker
 preserve_hostname: false
@@ -8,15 +11,15 @@ preserve_hostname: false
 package_update: true
 package_upgrade: true
 
-# Keep the installation limited to the Docker engine, CLI, and OpenRC service.
-# docker-cli-buildx and docker-cli-compose are intentionally not installed.
+# Minimal Docker installation: engine, CLI, and OpenRC integration only.
+# Compose, Buildx, editors, shells, and general-purpose utilities are omitted.
 packages:
   - docker-engine
   - docker-cli
   - docker-openrc
 
 write_files:
-  # Alpine Edge community contains the Docker packages.
+  # Alpine Edge community repository provides Docker packages.
   - path: /etc/apk/repositories
     owner: root:root
     permissions: '0644'
@@ -24,13 +27,13 @@ write_files:
       https://dl-cdn.alpinelinux.org/alpine/edge/main
       https://dl-cdn.alpinelinux.org/alpine/edge/community
 
-  # Docker-in-Incus compatibility marker.
+  # Incus documents this marker as helpful for Docker inside nested containers.
   - path: /.dockerenv
     owner: root:root
     permissions: '0644'
     content: ""
 
-  # Run APK updates daily using Alpine's existing BusyBox cron.
+  # Daily APK maintenance. Runs at 03:00 UTC.
   - path: /usr/local/sbin/apk-auto-upgrade
     owner: root:root
     permissions: '0755'
@@ -50,10 +53,36 @@ runcmd:
   - |
     set -eu
 
-    # Enable Docker at boot and start it now.
+    # Ensure Docker is enabled at boot.
     rc-update add docker default
-    rc-service docker start
 
-    # Enable BusyBox cron and start scheduled package updates.
+    # Start Docker and wait until the daemon API is actually responsive.
+    # Capture OpenRC diagnostics so failed provisioning is actionable.
+    if ! rc-service -d docker start > /var/log/docker-cloud-init.log 2>&1; then
+      :
+    fi
+
+    attempt=0
+    while [ "$attempt" -lt 30 ]; do
+      if docker info >/dev/null 2>&1; then
+        break
+      fi
+      attempt=$((attempt + 1))
+      sleep 1
+    done
+
+    if ! docker info >/dev/null 2>&1; then
+      {
+        printf '%s\n' 'Docker daemon did not become ready during Cloud-Init.'
+        printf '%s\n' '===== OpenRC status ====='
+        rc-service -d docker status
+        printf '%s\n' '===== System log ====='
+        logread | tail -100
+      } >> /var/log/docker-cloud-init.log 2>&1 || true
+      cat /var/log/docker-cloud-init.log
+      exit 1
+    fi
+
+    # Enable daily package maintenance.
     rc-update add crond default
-    rc-service crond start
+    rc-service crond start || rc-service crond restart
