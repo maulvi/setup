@@ -54,7 +54,6 @@ users:
     ssh_authorized_keys:
       - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE+4ZEOdXWpq7Z+0ujjF6ZvzOhfskiuDljkbJpjNVFeA eddsa-key-20250201"
 
-ssh_pwauth: false
 disable_root: true
 
 write_files:
